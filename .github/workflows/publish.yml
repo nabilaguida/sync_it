@@ -1,0 +1,23 @@
+# Publishes sync_it to pub.dev when a version tag (e.g. v0.2.1) is pushed.
+#
+# Setup (one-time, on pub.dev → your package → Admin → Automated publishing):
+#   - Enable "Publishing from GitHub Actions"
+#   - Repository: nabilaguida/sync_it
+#   - Tag pattern: v{{version}}
+#
+# Release flow afterwards:
+#   1. Bump `version:` in pubspec.yaml + add a CHANGELOG entry, commit, push.
+#   2. git tag v0.2.1 && git push origin v0.2.1
+#   The tag must match the pubspec version, or the publish step fails.
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  publish:
+    permissions:
+      id-token: write # Required for OIDC authentication with pub.dev.
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
