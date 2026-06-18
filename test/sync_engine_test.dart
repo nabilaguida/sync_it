@@ -413,5 +413,50 @@ void main() {
       await h.engine.sync();
       expect(sequence, ['push', 'pull']);
     });
+
+    test('prefetches the next page while the current page is still applying',
+        () async {
+      final h = EngineHarness();
+      final fetchedPages = <int>[];
+      final appliedOrder = <int>[];
+      final firstApplyStarted = Completer<void>();
+      final releaseFirstApply = Completer<void>();
+
+      h.engine.registerCollection(
+        SyncCollection<int>(
+          name: 'pipe',
+          fetchPage: (_, page) async {
+            fetchedPages.add(page);
+            return PullPage(items: [page], hasMore: page < 2);
+          },
+          applyPage: (items) async {
+            final p = items.single;
+            if (p == 1) {
+              firstApplyStarted.complete();
+              await releaseFirstApply.future; // hold page 1 mid-apply
+            }
+            appliedOrder.add(p);
+          },
+        ),
+      );
+
+      final syncFuture = h.engine.sync(push: false);
+
+      // Page 1 is blocked mid-apply. The pipeline must already have fetched
+      // page 2 without waiting for page 1's apply to finish.
+      await firstApplyStarted.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(fetchedPages, contains(2),
+          reason: 'next page must be prefetched during the current apply');
+      expect(appliedOrder, isEmpty, reason: 'page 1 apply still in flight');
+
+      releaseFirstApply.complete();
+      await syncFuture;
+
+      expect(appliedOrder, [1, 2],
+          reason: 'pages applied strictly in page order');
+      expect(await h.watermarks.get('pipe'), isNotNull,
+          reason: 'a fully successful pipelined pull advances the watermark');
+    });
   });
 }

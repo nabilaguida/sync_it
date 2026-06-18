@@ -55,38 +55,62 @@ class CollectionSyncer {
 
       var page = collection.firstPage;
       var pagesFetched = 0;
-      var hasMore = true;
       var hitPageBound = false;
 
-      while (hasMore) {
-        if (pagesFetched >= collection.maxPages) {
-          hitPageBound = true;
-          _log.warning(
-            'Pull of "$name" stopped at maxPages '
-            '(${collection.maxPages}); watermark NOT advanced',
+      // Pipeline the pages: the next page is fetched over the network while
+      // the current one is being applied (disk / CPU bound), so wall-clock
+      // per page is max(fetch, apply) instead of fetch + apply. Pages are
+      // still applied — and progress emitted — strictly in page order.
+      Future<PullPage<dynamic>>? pending =
+          collection.fetchPageErased(since, page);
+
+      try {
+        while (pending != null) {
+          final result = await pending;
+          pending = null;
+          pagesFetched++;
+          page++;
+
+          // Kick off the next fetch BEFORE applying this page, so the two
+          // overlap. Honor the runaway-API bound: stop prefetching once
+          // maxPages pages have been fetched (and don't advance the
+          // watermark, exactly as the non-pipelined loop did).
+          if (result.hasMore && pagesFetched < collection.maxPages) {
+            pending = collection.fetchPageErased(since, page);
+          } else if (result.hasMore) {
+            hitPageBound = true;
+            _log.warning(
+              'Pull of "$name" stopped at maxPages '
+              '(${collection.maxPages}); watermark NOT advanced',
+            );
+          }
+
+          if (result.items.isNotEmpty) {
+            await collection.applyPageErased(result.items);
+            itemsApplied += result.items.length;
+          }
+
+          _emit(
+            CollectionPullProgress(
+              collection: name,
+              page: pagesFetched,
+              itemsApplied: itemsApplied,
+              totalCount: result.totalCount,
+            ),
           );
-          break;
         }
-
-        final result = await collection.fetchPageErased(since, page);
-        pagesFetched++;
-
-        if (result.items.isNotEmpty) {
-          await collection.applyPageErased(result.items);
-          itemsApplied += result.items.length;
+      } catch (_) {
+        // A fetch or apply failed mid-pipeline. Drain any in-flight prefetch
+        // so it can't later surface as an unhandled async error (its result
+        // is discarded), then let the outer handler record the failure.
+        final inFlight = pending;
+        if (inFlight != null) {
+          await inFlight.catchError(
+            (Object _) =>
+                const PullPage<dynamic>(items: <dynamic>[], hasMore: false),
+          );
         }
-
-        _emit(
-          CollectionPullProgress(
-            collection: name,
-            page: pagesFetched,
-            itemsApplied: itemsApplied,
-            totalCount: result.totalCount,
-          ),
-        );
-
-        hasMore = result.hasMore;
-        page++;
+        rethrow;
       }
 
       if (!hitPageBound) {

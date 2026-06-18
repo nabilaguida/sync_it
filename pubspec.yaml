@@ -3,7 +3,7 @@ description: >-
   Offline-first synchronization engine: persistent outbox with
   dependency-ordered replay, retry policies, and pull replication of
   server collections. Pure Dart — storage and connectivity are injected.
-version: 0.2.0
+version: 0.2.1
 repository: https://github.com/nabilaguida/sync_it
 homepage: https://github.com/nabilaguida/sync_it
 issue_tracker: https://github.com/nabilaguida/sync_it/issues

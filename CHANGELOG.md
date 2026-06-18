@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-06-18
+
+### Changed
+- **Pipelined pull loop**: the next page is now fetched over the network while
+  the current page is being applied to local storage, so per-page wall-clock is
+  `max(fetch, apply)` instead of `fetch + apply`. Pages are still applied — and
+  progress events still emitted — strictly in page order, and the `maxPages`
+  bound, watermark-on-success, and watermark-held-on-failure semantics are
+  unchanged. No API changes.
+
 ## 0.2.0 — 2026-06-12
 
 Major rework: from "outbox with unbounded retries" to a full offline-first
